@@ -6,28 +6,13 @@ import traceback
 import irclib
 import ircbot
 
-def periodic(period):
-    """Decorate a class instance method so that the method would be
-    periodically executed by irclib framework.
-    """
-    def decorator(f):
-        def new_f(self, *args):
-            try:
-                f(self, *args)
-            except StopIteration:
-                return
-            finally:
-                self.ircobj.execute_delayed(period, new_f, (self,) + args)
-        return new_f
-    return decorator
+class Message(): # TODO: irclib.Event?
+    """Represents IRC message."""
 
-class Message():
     def __init__(self, command, arguments, timestamp=None):
         assert isinstance(command, str)
         self.command = command
-        self.arguments = []
-        for _ in arguments:
-            self.arguments.append(_ if isinstance(_, bytes) else _.encode('utf-8'))
+        self.arguments = arguments
         self.timestamp = time.time() if timestamp is None else timestamp
 
     def __repr__(self):
@@ -36,9 +21,6 @@ class Message():
             repr(self.arguments),
             repr(self.timestamp)
         )
-
-    def __cmp__(self, message):
-        return cmp(self.timestamp, message.timestamp)
 
     def __lt__(self, message):
         return self.timestamp < message.timestamp
@@ -50,7 +32,8 @@ class Message():
 
 class MessageBuffer(object):
     """Buffer of Message objects, sorted by their timestamp.
-    If some of its Message's timestamp lags over self.timeout, it purges all the queue.
+    If some of its Message's timestamp lags over self.timeout, it purges all
+    the queue.
     Note that this uses heapq mechanism hence not thread-safe.
     """
 
@@ -71,6 +54,7 @@ class MessageBuffer(object):
         return heapq.heappush(self.heap, message)
 
     def _pop(self):
+        """[Internal]"""
         if not self.heap:
             return None
         return heapq.heappop(self.heap)
@@ -92,12 +76,12 @@ class MessageBuffer(object):
             message = self._pop()
             if message.command in ['privmsg', 'privnotice']:
                 try:
-                    target, message = message.arguments
-                except:
+                    target, str_message = message.arguments
+                except Exception:
                     traceback.print_exc()
-                    self.push(message)
+                    self.push(str_message)
                     return
-                if not self.is_system_message(message):
+                if not message.is_system_message():
                     line_counts[target] += 1
         for target, line_count in line_counts.items():
             message = "-- Message lags over %f seconds. Skipping %d line(s).." \
@@ -111,34 +95,35 @@ class MessageBuffer(object):
     def has_buffer_by_command(self, command):
         return any(_.command == command for _ in self.heap)
 
-    def is_system_message(self, message):
-        return message.startswith('--') # XXX
-
 class BufferingBot(ircbot.SingleServerIRCBot):
     def __init__(self, network_list, nickname, realname,
-                 reconnection_interval=60, use_ssl=False):
+                 reconnection_interval=60, use_ssl=False, buffer_timeout=10.0,
+                 passive=False):
         ircbot.SingleServerIRCBot.__init__(self, network_list, nickname,
                                            realname, reconnection_interval,
                                            use_ssl)
-        self.buffer = MessageBuffer(10.0)
+        self.buffer = MessageBuffer(timeout=buffer_timeout)
         self.last_tick = 0
-        self.on_tick()
+        self.passive = passive
+        if not passive:
+            self.on_tick()
 
-    @periodic(0.2)
     def on_tick(self):
         if not self.connection.is_connected():
             return
         self.flood_control()
+        if not self.passive:
+            self.ircobj.execute_delayed(0.2, self.on_tick)
 
     def get_delay(self, message):
         # TODO: per-network configuration
         delay = 0
-        if message.command == 'privmsg':
+        if message.command in ['privmsg']:
             delay = 2
             try:
-                target, msg = message.arguments
+                _, msg = message.arguments
                 delay = 0.5 + len(msg) / 35.
-            except:
+            except Exception:
                 traceback.print_exc()
         if delay > 4:
             delay = 4
@@ -150,24 +135,24 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         """
         if not self.connection.is_connected():
             self._connect()
-            return
-        message = None
-        local = False
+            return False
         if len(self.buffer):
             print('--- buffer ---')
             self.buffer._dump()
             self.pop_buffer(self.buffer)
+            return True
+        return False
 
-    def pop_buffer(self, buffer):
-        if not buffer:
+    def pop_buffer(self, message_buffer):
+        if not message_buffer:
             return
-        message = buffer.peek()
-        if message.command == 'privmsg':
+        message = message_buffer.peek()
+        if message.command in ['privmsg']:
             try:
-                target, msg = message.arguments
+                target, _ = message.arguments
                 if irclib.is_channel(target) and target not in self.channels:
                     return
-            except:
+            except Exception:
                 traceback.print_exc()
                 return
         delay = self.get_delay(message)
@@ -175,7 +160,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         if self.last_tick + delay > tick:
             return
         self.process_message(message)
-        message_ = buffer.pop()
+        message_ = message_buffer.pop()
         if message != message_:
             print(message)
             print(message_)
@@ -192,8 +177,8 @@ class BufferingBot(ircbot.SingleServerIRCBot):
                 self.connection.mode(*message.arguments)
             elif message.command == 'privmsg':
                 self.connection.privmsg(*message.arguments)
-            elif message.command == 'privnotice':
-                self.connection.privnotice(*message.arguments)
+            elif message.command == 'notice':
+                self.connection.notice(*message.arguments)
             elif message.command == 'topic':
                 self.connection.topic(*message.arguments)
             elif message.command == 'who':
