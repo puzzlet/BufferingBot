@@ -46,7 +46,9 @@ class MessageBuffer(object):
         return len(self.heap)
 
     def dump(self):
-        print(self.heap)
+        heap = self.heap[:]
+        while heap:
+            print(heapq.heappop(heap))
 
     def peek(self):
         return self.heap[0]
