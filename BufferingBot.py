@@ -1,3 +1,4 @@
+import sys
 import time
 import heapq
 import collections
@@ -6,7 +7,7 @@ import traceback
 import irclib
 import ircbot
 
-class Message(): # TODO: irclib.Event?
+class Message: # TODO: irclib.Event?
     """Represents IRC message."""
 
     def __init__(self, command, arguments, timestamp=None):
@@ -44,7 +45,7 @@ class MessageBuffer(object):
     def __len__(self):
         return len(self.heap)
 
-    def _dump(self):
+    def dump(self):
         print(self.heap)
 
     def peek(self):
@@ -65,6 +66,8 @@ class MessageBuffer(object):
         return self._pop()
 
     def purge(self):
+        if self.timeout < 0:
+            return
         stale = time.time() - self.timeout
         line_counts = collections.defaultdict(int)
         while self.heap:
@@ -96,6 +99,18 @@ class MessageBuffer(object):
         return any(_.command == command for _ in self.heap)
 
 class BufferingBot(ircbot.SingleServerIRCBot):
+    """IRC bot with flood buffer.
+    Arguments:
+        network_list --
+        nickname
+        realname
+        reconnection_interval
+        use_ssl
+        buffer_timeout -- negative value if you don't want messages to be
+                          purged at all.
+        passive -- whether you want to call on_tick() from outside.
+    """
+
     def __init__(self, network_list, nickname, realname,
                  reconnection_interval=60, use_ssl=False, buffer_timeout=10.0,
                  passive=False):
@@ -109,8 +124,6 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             self.on_tick()
 
     def on_tick(self):
-        if not self.connection.is_connected():
-            return
         self.flood_control()
         if not self.passive:
             self.ircobj.execute_delayed(0.2, self.on_tick)
@@ -137,8 +150,6 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             self._connect()
             return False
         if len(self.buffer):
-            print('--- buffer ---')
-            self.buffer._dump()
             self.pop_buffer(self.buffer)
             return True
         return False
