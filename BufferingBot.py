@@ -17,14 +17,17 @@ class Message: # TODO: irclib.Event?
         self.timestamp = time.time() if timestamp is None else timestamp
 
     def __repr__(self):
-        return '<Message %s %s %s>' % (
-            repr(self.command),
+        return '<Message [%s] %s %s>' % (
+            time.strftime('%m %d %H:%M:%S', time.gmtime(self.timestamp)),
+            self.command,
             repr(self.arguments),
-            repr(self.timestamp)
         )
 
     def __lt__(self, message):
         return self.timestamp < message.timestamp
+
+    def __le__(self, message):
+        return self.timestamp <= message.timestamp
 
     def is_system_message(self):
         if self.command in ['privmsg', 'privnotice']:
@@ -48,7 +51,7 @@ class MessageBuffer(object):
     def dump(self):
         heap = self.heap[:]
         while heap:
-            print(heapq.heappop(heap))
+            print(repr(heapq.heappop(heap)))
 
     def peek(self):
         return self.heap[0]
@@ -164,6 +167,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             try:
                 target, _ = message.arguments
                 if irclib.is_channel(target) and target not in self.channels:
+                    self.push_message(Message('join', (target, ), 0))
                     return
             except Exception:
                 traceback.print_exc()
