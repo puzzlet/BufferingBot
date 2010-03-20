@@ -18,7 +18,7 @@ class Message: # TODO: irclib.Event?
 
     def __repr__(self):
         return '<Message [%s] %s %s>' % (
-            time.strftime('%m %d %H:%M:%S', time.gmtime(self.timestamp)),
+            time.strftime('%m %d %H:%M:%S', time.localtime(self.timestamp)),
             self.command,
             repr(self.arguments),
         )
@@ -131,7 +131,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
     def on_tick(self):
         self.flood_control()
         if not self.passive:
-            self.ircobj.execute_delayed(0.2, self.on_tick)
+            self.ircobj.execute_delayed(0.1, self.on_tick)
 
     def get_delay(self, message):
         # TODO: per-network configuration
@@ -161,21 +161,21 @@ class BufferingBot(ircbot.SingleServerIRCBot):
 
     def pop_buffer(self, message_buffer):
         if not message_buffer:
-            return
+            return False
         message = message_buffer.peek()
         if message.command in ['privmsg']:
             try:
                 target, _ = message.arguments
                 if irclib.is_channel(target) and target not in self.channels:
                     self.push_message(Message('join', (target, ), 0))
-                    return
+                    return False
             except Exception:
                 traceback.print_exc()
-                return
+                return False
         delay = self.get_delay(message)
         tick = time.time()
         if self.last_tick + delay > tick:
-            return
+            return False
         self.process_message(message)
         message_ = message_buffer.pop()
         if message != message_:
@@ -183,6 +183,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             print(message_)
             assert False
         self.last_tick = tick
+        return True
 
     def process_message(self, message):
         try:
@@ -205,9 +206,12 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         except irclib.ServerNotConnectedError:
             self.push_message(message)
             self._connect()
-        except:
+            return False
+        except Exception: # XXX
             traceback.print_exc()
             self.push_message(message)
+            return False
+        return True
 
     def push_message(self, message):
         self.buffer.push(message)
