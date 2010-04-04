@@ -1,8 +1,7 @@
-import sys
 import time
 import heapq
 import collections
-import traceback
+import codecs
 
 import irclib
 import ircbot
@@ -83,12 +82,7 @@ class MessageBuffer(object):
                 break
             message = self._pop()
             if message.command in ['privmsg', 'privnotice']:
-                try:
-                    target, str_message = message.arguments
-                except Exception:
-                    traceback.print_exc()
-                    self.push(str_message)
-                    return
+                target = message.arguments[0]
                 if not message.is_system_message():
                     line_counts[target] += 1
         for target, line_count in line_counts.items():
@@ -108,6 +102,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
     Arguments:
         network_list --
         nickname
+        username
         realname
         reconnection_interval
         use_ssl
@@ -116,12 +111,15 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         passive -- whether you want to call on_tick() from outside.
     """
 
-    def __init__(self, network_list, nickname, realname,
-                 reconnection_interval=60, use_ssl=False, buffer_timeout=10.0,
-                 passive=False):
+    def __init__(self, network_list, nickname, username=None, realname=None,
+                 reconnection_interval=60, use_ssl=False,
+                 codec=None, buffer_timeout=10.0, passive=False):
         ircbot.SingleServerIRCBot.__init__(self, network_list, nickname,
-                                           realname, reconnection_interval,
-                                           use_ssl)
+            username=username, realname=realname,
+            reconnection_interval=reconnection_interval, use_ssl=use_ssl)
+        self.codec = codec
+        if not self.codec:
+            self.codec = codecs.lookup('utf8')
         self.buffer = MessageBuffer(timeout=buffer_timeout)
         self.last_tick = 0
         self.passive = passive
@@ -138,11 +136,8 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         delay = 0
         if message.command in ['privmsg']:
             delay = 2
-            try:
-                _, msg = message.arguments
-                delay = 0.5 + len(msg) / 35.
-            except Exception:
-                traceback.print_exc()
+            str_message = self.codec.encode(message.arguments[1])
+            delay = 0.5 + len(str_message) / 35.
         if delay > 4:
             delay = 4
         return delay
@@ -164,13 +159,9 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             return False
         message = message_buffer.peek()
         if message.command in ['privmsg']:
-            try:
-                target, _ = message.arguments
-                if irclib.is_channel(target) and target not in self.channels:
-                    self.push_message(Message('join', (target, ), 0))
-                    return False
-            except Exception:
-                traceback.print_exc()
+            target = message.arguments[0]
+            chan = self.codec.encode(target)
+            if irclib.is_channel(chan) and chan not in self.channels:
                 return False
         delay = self.get_delay(message)
         tick = time.time()
@@ -186,30 +177,17 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         return True
 
     def process_message(self, message):
+        if message.command not in irclib.all_events:
+            return False
+        fun = getattr(self.connection, message.command, None)
+        if fun is None:
+            return False
+        arguments = [self.codec.encode(_) for _ in message.arguments]
         try:
-            if False:
-                pass
-            elif message.command == 'join':
-                self.connection.join(*message.arguments)
-            elif message.command == 'mode':
-                self.connection.mode(*message.arguments)
-            elif message.command == 'privmsg':
-                self.connection.privmsg(*message.arguments)
-            elif message.command == 'notice':
-                self.connection.notice(*message.arguments)
-            elif message.command == 'topic':
-                self.connection.topic(*message.arguments)
-            elif message.command == 'who':
-                self.connection.who(*message.arguments)
-            elif message.command == 'whois':
-                self.connection.whois(*message.arguments)
+            fun(*arguments)
         except irclib.ServerNotConnectedError:
             self.push_message(message)
             self._connect()
-            return False
-        except Exception: # XXX
-            traceback.print_exc()
-            self.push_message(message)
             return False
         return True
 
