@@ -182,7 +182,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         fun = getattr(self.connection, message.command, None)
         if fun is None:
             return False
-        arguments = [self.codec.encode(_) for _ in message.arguments]
+        arguments = [self.codec.encode(_)[0] for _ in message.arguments]
         try:
             fun(*arguments)
         except irclib.ServerNotConnectedError:
