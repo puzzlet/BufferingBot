@@ -160,7 +160,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         message = message_buffer.peek()
         if message.command in ['privmsg']:
             target = message.arguments[0]
-            chan = self.codec.encode(target)
+            chan = self.codec.encode(target)[0]
             if irclib.is_channel(chan) and chan not in self.channels:
                 return False
         delay = self.get_delay(message)
