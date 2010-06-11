@@ -1,4 +1,5 @@
 import time
+import datetime
 import heapq
 import collections
 import codecs
@@ -13,11 +14,11 @@ class Message: # TODO: irclib.Event?
         assert isinstance(command, str)
         self.command = command
         self.arguments = arguments
-        self.timestamp = time.time() if timestamp is None else timestamp
+        self.timestamp = timestamp or datetime.datetime.now()
 
     def __repr__(self):
         return '<Message [%s] %s %s>' % (
-            time.strftime('%m %d %H:%M:%S', time.localtime(self.timestamp)),
+            self.timestamp.isoformat(' '),
             self.command,
             repr(self.arguments),
         )
@@ -50,7 +51,7 @@ class MessageBuffer(object):
     def dump(self):
         heap = self.heap[:]
         while heap:
-            print(repr(heapq.heappop(heap)))
+            yield heapq.heappop(heap)
 
     def peek(self):
         return self.heap[0]
@@ -65,14 +66,15 @@ class MessageBuffer(object):
         return heapq.heappop(self.heap)
 
     def pop(self):
-        if self.peek().timestamp < time.time() - self.timeout:
+        threshold = datetime.datetime.now() - datetime.timedelta(seconds=self.timeout)
+        if self.peek().timestamp < threshold:
             self.purge()
         return self._pop()
 
     def purge(self):
         if self.timeout < 0:
             return
-        stale = time.time() - self.timeout
+        stale = datetime.datetime.now() - datetime.timedelta(seconds=self.timeout)
         line_counts = collections.defaultdict(int)
         while self.heap:
             message = self.peek()
