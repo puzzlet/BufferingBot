@@ -26,9 +26,6 @@ class Message: # TODO: irclib.Event?
     def __lt__(self, message):
         return self.timestamp < message.timestamp
 
-    def __le__(self, message):
-        return self.timestamp <= message.timestamp
-
     def is_system_message(self):
         if self.command in ['privmsg', 'privnotice']:
             return self.arguments[1].startswith('--') # XXX
@@ -51,19 +48,19 @@ class MessageBuffer(object):
     def dump(self):
         heap = self.heap[:]
         while heap:
-            yield heapq.heappop(heap)
+            yield heapq.heappop(heap)[-1]
 
     def peek(self):
-        return self.heap[0]
+        return self.heap[0][-1]
 
     def push(self, message):
-        return heapq.heappush(self.heap, message)
+        return heapq.heappush(self.heap, (message.timestamp, datetime.datetime.now(), message))
 
     def _pop(self):
         """[Internal]"""
         if not self.heap:
             return None
-        return heapq.heappop(self.heap)
+        return heapq.heappop(self.heap)[-1]
 
     def pop(self):
         threshold = datetime.datetime.now() - datetime.timedelta(seconds=self.timeout)
@@ -97,7 +94,7 @@ class MessageBuffer(object):
             self.push(message)
 
     def has_buffer_by_command(self, command):
-        return any(_.command == command for _ in self.heap)
+        return any(_[-1].command == command for _ in self.heap)
 
 class BufferingBot(ircbot.SingleServerIRCBot):
     """IRC bot with flood buffer.
