@@ -1,11 +1,11 @@
-import time
+import codecs
+import collections
 import datetime
 import heapq
-import collections
-import codecs
+import time
 
-import irclib
 import ircbot
+import irclib
 
 class Message: # TODO: irclib.Event?
     """Represents IRC message."""
@@ -14,11 +14,11 @@ class Message: # TODO: irclib.Event?
         assert isinstance(command, str)
         self.command = command
         self.arguments = arguments
-        self.timestamp = timestamp or datetime.datetime.now()
+        self.timestamp = time.time() if timestamp is None else timestamp
 
     def __repr__(self):
         return '<Message [%s] %s %s>' % (
-            self.timestamp.isoformat(' '),
+            time.strftime('%m %d %H:%M:%S', time.localtime(self.timestamp)),
             self.command,
             repr(self.arguments),
         )
@@ -54,7 +54,7 @@ class MessageBuffer(object):
         return self.heap[0][-1]
 
     def push(self, message):
-        return heapq.heappush(self.heap, (message.timestamp, datetime.datetime.now(), message))
+        return heapq.heappush(self.heap, (message.timestamp, time.time(), message))
 
     def _pop(self):
         """[Internal]"""
@@ -63,15 +63,14 @@ class MessageBuffer(object):
         return heapq.heappop(self.heap)[-1]
 
     def pop(self):
-        threshold = datetime.datetime.now() - datetime.timedelta(seconds=self.timeout)
-        if self.peek().timestamp < threshold:
+        if self.peek().timestamp < time.time() - self.timeout:
             self.purge()
         return self._pop()
 
     def purge(self):
         if self.timeout < 0:
             return
-        stale = datetime.datetime.now() - datetime.timedelta(seconds=self.timeout)
+        stale = time.time() - self.timeout
         line_counts = collections.defaultdict(int)
         while self.heap:
             message = self.peek()
