@@ -63,7 +63,7 @@ class MessageBuffer(object):
         return heapq.heappop(self.heap)[-1]
 
     def pop(self):
-        if self.peek().timestamp < time.time() - self.timeout:
+        if self.heap[0][1] < time.time() - self.timeout:
             self.purge()
         return self._pop()
 
@@ -118,7 +118,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         self.codec = codec
         if not self.codec:
             self.codec = codecs.lookup('utf8')
-        self.buffer = MessageBuffer(timeout=buffer_timeout)
+        self.message_buffer = MessageBuffer(timeout=buffer_timeout)
         self.last_tick = 0
         self.passive = passive
         if not passive:
@@ -147,18 +147,17 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         if not self.connection.is_connected():
             self._connect()
             return False
-        if len(self.buffer):
-            self.pop_buffer(self.buffer)
-            return True
+        if len(self.message_buffer):
+            return self.pop_buffer(self.message_buffer)
         return False
 
     def pop_buffer(self, message_buffer):
-        if not message_buffer:
+        if not len(message_buffer):
             return False
         message = message_buffer.peek()
         if message.command in ['privmsg']:
             target = message.arguments[0]
-            chan = self.codec.encode(target)[0]
+            chan = irclib.irc_lower(self.codec.encode(target)[0])
             if irclib.is_channel(chan) and chan not in self.channels:
                 return False
         delay = self.get_delay(message)
@@ -190,5 +189,5 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         return True
 
     def push_message(self, message):
-        self.buffer.push(message)
+        self.message_buffer.push(message)
 
