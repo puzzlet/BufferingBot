@@ -51,6 +51,8 @@ class MessageBuffer(object):
             yield heapq.heappop(heap)[-1]
 
     def peek(self):
+        if not self.heap:
+            return None
         return self.heap[0][-1]
 
     def push(self, message):
@@ -70,11 +72,11 @@ class MessageBuffer(object):
     def purge(self):
         if self.timeout < 0:
             return
-        stale = time.time() - self.timeout
+        fresh = time.time() - self.timeout
         line_counts = collections.defaultdict(int)
         while self.heap:
             message = self.peek()
-            if message.timestamp > stale:
+            if message.timestamp > fresh:
                 break
             if message.command in ['join']: # XXX
                 break
@@ -134,7 +136,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         delay = 0
         if message.command in ['privmsg']:
             delay = 2
-            str_message = self.codec.encode(message.arguments[1])
+            str_message = self.codec.encode(message.arguments[1])[0]
             delay = 0.5 + len(str_message) / 35.
         if delay > 4:
             delay = 4
@@ -155,6 +157,8 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         if not len(message_buffer):
             return False
         message = message_buffer.peek()
+        if not message:
+            return False
         if message.command in ['privmsg']:
             target = message.arguments[0]
             chan = irclib.irc_lower(self.codec.encode(target)[0])
@@ -166,7 +170,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             return False
         self.process_message(message)
         message_ = message_buffer.pop()
-        if message != message_:
+        if not message_ or message != message_:
             print(message)
             print(message_)
             assert False
