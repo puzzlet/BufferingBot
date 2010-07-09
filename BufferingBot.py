@@ -45,6 +45,13 @@ class MessageBuffer(object):
     def __len__(self):
         return len(self.heap)
 
+    def __lt__(self, message_buffer):
+        m1 = self.peek()
+        t1 = m1.timestamp if m1 else float('infinity')
+        m2 = message_buffer.peek()
+        t2 = m2.timestamp if m2 else float('infinity')
+        return t1 < t2
+
     def dump(self):
         heap = self.heap[:]
         while heap:
@@ -58,41 +65,10 @@ class MessageBuffer(object):
     def push(self, message):
         return heapq.heappush(self.heap, (message.timestamp, time.time(), message))
 
-    def _pop(self):
-        """[Internal]"""
+    def pop(self):
         if not self.heap:
             return None
         return heapq.heappop(self.heap)[-1]
-
-    def pop(self):
-        if self.heap[0][1] < time.time() - self.timeout:
-            self.purge()
-        return self._pop()
-
-    def purge(self):
-        if self.timeout < 0:
-            return
-        fresh = time.time() - self.timeout
-        line_counts = collections.defaultdict(int)
-        while self.heap:
-            message = self.peek()
-            if message.timestamp > fresh:
-                break
-            if message.command in ['join']: # XXX
-                break
-            message = self._pop()
-            if message.command in ['privmsg', 'privnotice']:
-                target = message.arguments[0]
-                if not message.is_system_message():
-                    line_counts[target] += 1
-        for target, line_count in line_counts.items():
-            message = "-- Message lags over %f seconds. Skipping %d line(s).." \
-                % (self.timeout, line_count)
-            message = Message(
-                command = 'privmsg',
-                arguments = (target, message)
-            )
-            self.push(message)
 
     def has_buffer_by_command(self, command):
         return any(_[-1].command == command for _ in self.heap)
@@ -121,6 +97,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         if not self.codec:
             self.codec = codecs.lookup('utf8')
         self.message_buffer = MessageBuffer(timeout=buffer_timeout)
+        self.buffer_timeout = buffer_timeout
         self.last_tick = 0
         self.passive = passive
         if not passive:
@@ -150,8 +127,31 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             self._connect()
             return False
         if len(self.message_buffer):
+            self.purge_buffer(self.message_buffer)
             return self.pop_buffer(self.message_buffer)
         return False
+
+    def purge_buffer(self, message_buffer):
+        if self.buffer_timeout < 0:
+            return
+        fresh = time.time() - self.buffer_timeout
+        if all(message.timestamp > fresh for message in message_buffer.dump()):
+            return
+        line_counts = collections.defaultdict(int)
+        while len(message_buffer):
+            message = message_buffer.pop()
+            if message.command in ['privmsg', 'privnotice']:
+                target = message.arguments[0]
+                if not message.is_system_message():
+                    line_counts[target] += 1
+        tmpl = "-- Message lags over {} seconds. Skipping {} line(s).."
+        for target, line_count in line_counts.items():
+            message = tmpl.format(30, 99)
+            message = Message(
+                command='privmsg',
+                arguments=(target, tmpl.format(self.buffer_timeout, line_count))
+            )
+            self.push(message)
 
     def pop_buffer(self, message_buffer):
         if not len(message_buffer):
