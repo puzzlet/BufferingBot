@@ -151,7 +151,7 @@ class BufferingBot(ircbot.SingleServerIRCBot):
                 command='privmsg',
                 arguments=(target, tmpl.format(self.buffer_timeout, line_count))
             )
-            self.push(message)
+            self.push_message(message)
 
     def pop_buffer(self, message_buffer):
         if not len(message_buffer):
