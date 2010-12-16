@@ -162,8 +162,9 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         if message.command in ['privmsg']:
             target = message.arguments[0]
             chan = irclib.irc_lower(self.codec.encode(target)[0])
-            if irclib.is_channel(chan) and chan not in self.channels:
-                return False
+            if irclib.is_channel(chan):
+                if chan not in [irclib.irc_lower(_) for _ in self.channels]:
+                    return False
         delay = self.get_delay(message)
         tick = time.time()
         if self.last_tick + delay > tick:
