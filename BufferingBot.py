@@ -39,6 +39,7 @@ class MessageBuffer(object):
     """
 
     def __init__(self, timeout=10.0):
+        self.disabled = False
         self.timeout = timeout
         self.heap = []
 
