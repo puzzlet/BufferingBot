@@ -1,11 +1,13 @@
 import codecs
 import collections
-import datetime
 import heapq
+import ssl
 import time
 
-import ircbot
-import irclib
+import irc.bot
+import irc.client
+import irc.connection
+import irc.events
 
 class Message: # TODO: irclib.Event?
     """Represents IRC message."""
@@ -74,7 +76,8 @@ class MessageBuffer(object):
     def has_buffer_by_command(self, command):
         return any(_[-1].command == command for _ in self.heap)
 
-class BufferingBot(ircbot.SingleServerIRCBot):
+
+class BufferingBot(irc.bot.SingleServerIRCBot):
     """IRC bot with flood buffer.
     Arguments:
         network_list --
@@ -91,9 +94,10 @@ class BufferingBot(ircbot.SingleServerIRCBot):
     def __init__(self, network_list, nickname, username=None, realname=None,
                  reconnection_interval=60, use_ssl=False,
                  codec=None, buffer_timeout=10.0, passive=False):
-        ircbot.SingleServerIRCBot.__init__(self, network_list, nickname,
-            username=username, realname=realname,
-            reconnection_interval=reconnection_interval, use_ssl=use_ssl)
+        irc.bot.SingleServerIRCBot.__init__(self, network_list, nickname,
+            realname=realname, reconnection_interval=reconnection_interval)
+        self.username = username
+        self.use_ssl = use_ssl
         self.codec = codec
         if not self.codec:
             self.codec = codecs.lookup('utf8')
@@ -103,6 +107,25 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         self.passive = passive
         if not passive:
             self.on_tick()
+
+    def _connect(self):
+        password = None
+        if len(self.server_list[0]) > 2:
+            password = self.server_list[0][2]
+        try:
+            connect_factory = None
+            if self.use_ssl:
+                connect_factory = irc.connection.Factory()
+                connect_factory.wrapper = ssl.wrap_socket
+            self.connect(self.server_list[0][0],
+                         self.server_list[0][1],
+                         self._nickname,
+                         password=password,
+                         username=self.username,
+                         ircname=self._realname,
+                         connect_factory=connect_factory)
+        except irc.client.ServerConnectionError:
+            pass
 
     def on_tick(self):
         self.flood_control()
@@ -162,9 +185,9 @@ class BufferingBot(ircbot.SingleServerIRCBot):
             return False
         if message.command in ['privmsg']:
             target = message.arguments[0]
-            chan = irclib.irc_lower(self.codec.encode(target)[0])
-            if irclib.is_channel(chan):
-                if chan not in [irclib.irc_lower(_) for _ in self.channels]:
+            chan = target.lower()
+            if irc.client.is_channel(chan):
+                if chan not in [_.lower() for _ in self.channels]:
                     return False
         delay = self.get_delay(message)
         tick = time.time()
@@ -180,15 +203,14 @@ class BufferingBot(ircbot.SingleServerIRCBot):
         return True
 
     def process_message(self, message):
-        if message.command not in irclib.all_events:
+        if message.command not in irc.events.all:
             return False
         fun = getattr(self.connection, message.command, None)
         if fun is None:
             return False
-        arguments = [self.codec.encode(_)[0] for _ in message.arguments]
         try:
-            fun(*arguments)
-        except irclib.ServerNotConnectedError:
+            fun(*message.arguments)
+        except irc.client.ServerNotConnectedError:
             self.push_message(message)
             self._connect()
             return False
@@ -196,4 +218,3 @@ class BufferingBot(ircbot.SingleServerIRCBot):
 
     def push_message(self, message):
         self.message_buffer.push(message)
-
