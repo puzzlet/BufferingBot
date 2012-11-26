@@ -110,17 +110,15 @@ class BufferingBot(irc.bot.SingleServerIRCBot):
 
     def _connect(self):
         password = None
-        if len(self.server_list[0]) > 2:
-            password = self.server_list[0][2]
         try:
             connect_factory = None
             if self.use_ssl:
                 connect_factory = irc.connection.Factory()
                 connect_factory.wrapper = ssl.wrap_socket
-            self.connect(self.server_list[0][0],
-                         self.server_list[0][1],
+            self.connect(self.server_list[0].host,
+                         self.server_list[0].port,
                          self._nickname,
-                         password=password,
+                         password=self.server_list[0].password,
                          username=self.username,
                          ircname=self._realname,
                          connect_factory=connect_factory)
