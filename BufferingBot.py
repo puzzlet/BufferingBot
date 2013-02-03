@@ -1,6 +1,7 @@
 import codecs
 import collections
 import heapq
+import logging
 import ssl
 import time
 
@@ -96,6 +97,7 @@ class BufferingBot(irc.bot.SingleServerIRCBot):
                  codec=None, buffer_timeout=10.0, passive=False):
         irc.bot.SingleServerIRCBot.__init__(self, network_list, nickname,
             realname=realname, reconnection_interval=reconnection_interval)
+        self.connection.buffer_class = irc.client.LineBuffer
         self.username = username
         self.use_ssl = use_ssl
         self.codec = codec
@@ -109,7 +111,6 @@ class BufferingBot(irc.bot.SingleServerIRCBot):
             self.on_tick()
 
     def _connect(self):
-        password = None
         try:
             connect_factory = None
             if self.use_ssl:
@@ -208,6 +209,9 @@ class BufferingBot(irc.bot.SingleServerIRCBot):
             return False
         try:
             fun(*message.arguments)
+        except ValueError:
+            logging.exception(message)
+            return True
         except irc.client.ServerNotConnectedError:
             self.push_message(message)
             self._connect()
